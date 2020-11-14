@@ -34,3 +34,19 @@ gcc out.c -O3 -fopenmp -march=native -lm -o opt_heat1d_2oa.exe
 ```
 
 _opt_example/ has optimized examples of the heat and wave use cases (the intended output of the optimizer)_
+
+
+_Note: Feel free to test with your own stencils (some of the parsing is pretty simplistic though and it might break..). _
+To use, include #pragma stencil before the loops of you stencil code, for example:
+
+```
+#pragma stencil
+  for (t = 0; t < T_MAX; t++)
+  {
+    for (x = 1; x < x_max - 1; x++)
+    {
+      u_0_0[1-t%2][x] = u_0_0[t%2][x] +
+        0.125 * (u_0_0[t%2][x+1] - 2*u_0_0[t%2][x] + u_0_0[t%2][x-1]);
+    }
+  }
+```
