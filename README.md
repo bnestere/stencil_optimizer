@@ -17,9 +17,9 @@ Required libraries/tools for use:
 To test an example, repeat the steps for a given {case\_study}, where each step must be performed in the root diretory of this tool
 
 ```
-cp examples/{case\_study}/* .
-Rscript predict_opt.R  --in {case\_study}.c
-gcc out.c -O3 -fopenmp -march -native -o opt\_{case\_study}.exe
+cp examples/{case_study}/* .
+Rscript predict_opt.R  --in {case_study}.c
+gcc out.c -O3 -fopenmp -march -native -o opt_{case_study}.exe
 ```
 
 _Note: Compilation of the output optimized stencil code is delegated to the user, who may use their preferred C compiler_
