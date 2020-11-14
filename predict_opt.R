@@ -17,6 +17,10 @@ if(is.null(opt$`in`)) {
   stop('no input stencil file')
 }
 
+# ----------------------------------------------------------------------------
+# -----  Parse the input stencil code to extract domain-level 
+# ----- props and opportunity indicators 
+# ----------------------------------------------------------------------------
 pcg_cmd <- 'pcg'
 pcg_args <- c(paste0("-pin=", opt$`in`), "FindDomainProps.pt")
 system2(pcg_cmd, pcg_args, wait=TRUE)
@@ -26,6 +30,9 @@ exe_conf_json <- "exe_config.json"
 sten_props <- fromJSON(file=stencil_json)
 exe_conf <- fromJSON(file=exe_conf_json)
 
+# ----------------------------------------------------------------------------
+# -----  Shape the data that builds the regression model ---------------------
+# ----------------------------------------------------------------------------
 stencil_csv <- "stencilbench.csv"
 dat <- read.csv(stencil_csv) %>%
   mutate(div = case_when(
@@ -66,6 +73,9 @@ dat <- read.csv(stencil_csv) %>%
   summarize(mspeedup=mean(Speedup), mgflops=mean(GFLOPS), stdev=sd(Speedup)) %>%
   ungroup() 
 
+# ----------------------------------------------------------------------------
+# -----  Build the Regression Model 
+# ----------------------------------------------------------------------------
 fitter <- dat %>%
   group_by(optId) %>%
   nest() %>%
@@ -142,6 +152,9 @@ valid_opts <- filter_invalid_opts(valid_opts, sten_props)
 
 opt_strat = c()
 
+# ----------------------------------------------------------------------------
+# ----- Use the prediction model to specialize an optimization strategy ------
+# ----------------------------------------------------------------------------
 while(length(valid_opts) > 0) {
 
   max_pred <- 0
@@ -189,6 +202,10 @@ while(length(valid_opts) > 0) {
   valid_opts <- filter_invalid_opts(valid_opts, sten_props)
 }
 
+
+# ----------------------------------------------------------------------------
+# -----  Optimize the code ---------------------------------------------------
+# ----------------------------------------------------------------------------
 tile_flag <- "--tile"
 if("Rectangular Tiling" %in% opt_strat) {
   tile_flag <- paste(tile_flag, "--nodiamond-tile")
@@ -206,7 +223,6 @@ if("Rectangular Tiling" %in% opt_strat) {
 # Multiplicative Inversion is performed previously through POET 
 
 
-stage_file <- "poet_stage.c"
 stage_file <- "poet_stage.c"
 margs <- c(stage_file, tile_flag, parallel_flag, "--pet", "-o", "out.c")
 command <- paste("/home/brandon/opt_devel/pluto/target/bin/polycc", margs)
