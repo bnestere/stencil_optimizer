@@ -1,7 +1,10 @@
 **/target
 **/out.*
+**/a.out
 **/*pluto.cloog
 **/__tmpe
-tool_impl/exe_config.json
-tool_impl/stencil_props.json
+exe_config.json
+poet_stage.c
+*.exe
+**/stencil_props.json
 

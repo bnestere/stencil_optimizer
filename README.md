@@ -24,3 +24,11 @@ gcc out.c -O3 -fopenmp -march -native -o opt_{case_study}.exe
 
 _Note: Compilation of the output optimized stencil code is delegated to the user, who may use their preferred C compiler_
  
+**Full Example**
+
+```
+cp example/heat1d_2oa/* .
+Rscript predict_opt.R  --in heat1d_2oa.c
+gcc out.c -O3 -fopenmp -march=native -lm -o opt_heat1d_2oa.exe
+./opt_heat1d_2oa 16000000 0 0 64
+```
