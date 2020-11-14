@@ -1,0 +1,25 @@
+include analysis.pi
+include lib/propanalysis.pt
+
+<code Program/>
+<define COLLECT_CALLS  "" />
+
+<parameter in type=STRING default="" message="input file name" />
+<parameter out type=STRING default="poet_stage.c" message="optimized output file name" />
+<parameter props type=STRING default="stencil_props.json" message = "Stencil props file"/>
+<parameter ext type=STRING|"" default="" message = "file extension"/>
+
+<eval inputCode=""; 
+      ext2=car(ReverseList(SPLIT(".",in))); 
+      if (ext2 : "h" || ext == "") ext = ext2;
+      PRINT("File Type:" ext);
+       /> 
+
+<define BACKTRACK 1/>
+
+<input from=in to=inputCode annot=0 syntax=("Cfront.code") />
+
+<eval pvals = CollectProps(inputCode, _); inputCode=UpdateSource(inputCode); print(pvals); />
+
+<output from=(inputCode) to=out syntax=("Cfront.code") />
+<output from=(pvals) to=props syntax=("PropsJson.code") />

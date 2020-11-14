@@ -1,0 +1,13 @@
+include utils.incl
+
+<code MDStencil pars=(dim, oa, to, dd, isLinear, isSerial, hasConstDiv)>
+{
+  "dim": @dim@,
+  "oa": @oa@,
+  "to": @to@,
+  "dd": @dd@,
+  "isLinear": @isLinear@,
+  "isSerial": @isSerial@,
+  "hasConstDiv": @hasConstDiv@
+}
+</code>

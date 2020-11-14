@@ -1,0 +1,252 @@
+include Loops.incl
+
+<code MDStencil pars=(dim, oa, to, dd, isLinear, isSerial, hasConstDiv) />
+
+<define SPATIAL_ITER_VARS "spatialIterVars" />
+<define TEMPORAL_ITER_VAR "temporalIterVar" />
+
+<define DIM "dim" />
+<define OA "oa" />
+<define TO "to" />
+<define DD "dd" />
+<define IS_LINEAR "isLinear" />
+<define HAS_CONST_DIV "hasConstDiv" />
+<define IS_SERIAL "isSerial" />
+
+<xform ListContains pars=(list, item)>
+  res = FALSE;
+  for (p_input = list; p_input != NULL; p_input = TAIL(p_input)) {
+    list_item = HEAD(p_input);
+    if(list_item == item) {
+      res = TRUE;
+      break;
+    }
+  }
+  return res;
+</xform>
+
+<xform GetIsIterationSpaceTraversalOfLinearOrder pars=(builder, spatial_nest)>
+  print("In GetIsIterationSpaceTraversalOfLinearOrder");
+  DEBUG {spatial_nest[Nest.ctrl];};
+
+  nest_control = spatial_nest[Nest.ctrl];
+  start = nest_control[Loop.start];
+  step = nest_control[Loop.step];
+
+  res = FALSE;
+  DEBUG { nest_control; };
+  DEBUG { start; };
+  DEBUG { step; };
+
+  if(start < 3 && step < 3) {
+    print("both are constants");
+    res = TRUE;
+  }
+
+  builder[IS_LINEAR] = res;
+
+  return res;
+</xform>
+
+<* Extract order of accuracy, temporal order, and directional dependence *>
+<xform AnalyzeComputation pars=(builder, stmt)>
+  print("In Analyze Computation"); 
+
+
+  max_reach = 0;
+  max_temporal_reach = 0;
+  dd = FALSE; <* 0 is isotropic and 1 is anisotropic *>
+  foreach bop = CODE.Bop \in stmt s.t. FALSE do
+    op = bop[Bop.op];
+    lhs = bop[Bop.opd1];
+    rhs = bop[Bop.opd2];
+
+    if(op == "%") continue;
+
+    <* Extract order of accuracy in spatial domain *>
+    reach = 0;
+    if(ListContains(builder[SPATIAL_ITER_VARS], lhs)) {
+      print("lhs is spatial iter var");
+      reach = rhs;
+    }
+    if(ListContains(builder[SPATIAL_ITER_VARS], rhs)) {
+      print("rhs is spatial iter var");
+      reach = lhs
+    }
+    if(reach > max_reach) max_reach = reach;
+
+    <* Extract temporal order *>
+    temporal_reach = 0;
+    if(builder[TEMPORAL_ITER_VAR] == lhs) {
+      temporal_reach = rhs;
+    }
+    if(builder[TEMPORAL_ITER_VAR] == rhs) {
+      temporal_reach = lhs;
+    }
+    if(temporal_reach > max_temporal_reach) max_temporal_reach = temporal_reach;
+
+    <* Extract directional dependence *>
+    if(dd) continue; <* Already found directional dependence to be anisotropic *>
+    if(lhs : ArrayAccess) {
+      if(rhs : ArrayAccess) dd = TRUE;
+    }
+    if(rhs : ArrayAccess) {
+      if(lhs : ArrayAccess) dd = TRUE;
+    }
+  enddo 
+
+  builder[OA] = max_reach*2;
+  builder[TO] = max_temporal_reach;
+  builder[DD] = dd;
+</xform>
+
+<xform GetDomainProps pars=(builder, spatial_nest, depth)>
+
+  myDepth = depth + 1;
+  
+  if(depth == 0) {
+    <* First dimension *>
+    builder[SPATIAL_ITER_VARS] = (spatial_nest[Nest.ctrl][Loop.i]);
+  } else {
+    <* Later dimensions *>
+    builder[SPATIAL_ITER_VARS] = builder[SPATIAL_ITER_VARS] :: spatial_nest[Nest.ctrl][Loop.i];
+  }
+
+  inner = spatial_nest[Nest.body];
+  if(inner : Nest) {
+    <* Recurse down the spatial nests and save depth for dimensionality *>
+    res = GetDomainProps(builder, inner, myDepth);
+  } else {
+    <* We are at the computation *>
+    builder[DIM] = myDepth;
+
+    AnalyzeComputation(builder, inner);
+  }
+
+  return builder;
+</xform>
+
+<xform AnalyzeStencilKernel pars=(stencil_builder, nest)>
+
+
+  stencil_builder[TEMPORAL_ITER_VAR] = nest[Nest.ctrl][Loop.i];
+  <* First loop is time *>
+  spatial_nest = nest[Nest.body];
+
+  GetDomainProps(stencil_builder, spatial_nest, 0);
+  GetIsIterationSpaceTraversalOfLinearOrder(stencil_builder, spatial_nest);
+
+</xform>
+
+<xform CollectProps pars=(input, pat_name) >
+  res = NULL; 
+  stencil_builder = MAP{};
+  stencil_builder[IS_SERIAL] = TRUE; <* Assume serial to start and change if found parallelization *>
+  stencil_builder[HAS_CONST_DIV] = FALSE; <* Assume there is no constant division initially *>
+  stencil_builder[IS_LINEAR] = FALSE; <* Assume it is not linear to start *>
+  found_stencil = 0;
+  stencil_prag = NULL;
+
+  foreach fun=CODE.FunctionDecl#(fname=STRING,_,_,fbody=_) \in input do
+    print ("processing " fname); prev="";
+    if (fbody : CODE.EmptyStmt|"") continue;
+    enter_block(fun); enter_block(fbody); count = 0; old_id = GLOBAL.PATTERN_ID;
+    foreach p = CODE.UnknownUntilEOL | CODE.Nest \in fbody do
+      if(p : CODE.Nest && found_stencil == 1)  {
+        <*Previous statement declared a stencil, so this is the nest of the stencil*>
+        print("Analyzing stencil loops");
+        AnalyzeStencilKernel(stencil_builder, p);
+      }
+      if(p : CODE.UnknownUntilEOL) {
+        content =  p[UnknownUntilEOL.content];
+        macro_id = (HEAD(content));
+        if (macro_id == "pragma") {
+          pragma_name = HEAD(TAIL(TAIL(content)));
+          if(pragma_name == "stencil") {
+            found_stencil = 1;
+            print("Found the stencil");
+            <* Remove pragma *>
+            stencil_prag = p;
+            new_prag = REPLACE((("stencil", "scop")), p);
+            <* REPLACE(("stencil" "scop"), CODE.UnknownUntilEOL#(("pragma" " " "scop")));*>
+          }
+
+          if(pragma_name == "omp") {
+            stencil_builder[IS_SERIAL] = FALSE;
+          }
+        }
+      }
+    enddo 
+  enddo
+
+  input = REPLACE(((stencil_prag, new_prag)), input);
+
+  stencil = MDStencil#(
+    stencil_builder[DIM],
+    stencil_builder[OA],
+    stencil_builder[TO],
+    stencil_builder[DD],
+    stencil_builder[IS_LINEAR],
+    stencil_builder[IS_SERIAL],
+    stencil_builder[HAS_CONST_DIV]
+  );
+  DEBUG {stencil;};
+  return stencil;
+</xform>
+
+
+<xform UpdateSource pars=(input) >
+  stencil_prag = NULL;
+  old_kernel = NULL;
+  found_stencil = FALSE;
+  finished_stencil = FALSE;
+
+  old_fbody = NULL;
+  new_fbody = NULL;
+  new_input = input;
+
+  foreach fun=CODE.FunctionDecl#(fname=STRING,_,_,fbody=_) \in input do
+    print ("processing " fname); prev="";
+    if (fbody : CODE.EmptyStmt|"") continue;
+    enter_block(fun); enter_block(fbody); count = 0; old_id = GLOBAL.PATTERN_ID;
+    foreach p = CODE.UnknownUntilEOL | CODE.Nest \in fbody do
+      if(p : CODE.Nest && found_stencil == TRUE  && finished_stencil == FALSE)  {
+        <*Previous statement declared a stencil, so this is the nest of the stencil*>
+        print("Analyzing stencil loops");
+        old_kernel = p;
+        new_kernel = StmtList#(
+          old_kernel
+          UnknownUntilEOL#("#pragma" " " "endscop")
+        );
+        new_fbody = REPLACE(((old_kernel, new_kernel)), fbody);
+        finished_stencil = TRUE;
+      }
+      if(p : CODE.UnknownUntilEOL) {
+        content =  p[UnknownUntilEOL.content];
+        macro_id = (HEAD(content));
+        if (macro_id == "pragma") {
+          pragma_name = HEAD(TAIL(TAIL(content)));
+          if(pragma_name == "stencil") {
+            old_fbody = fbody;
+            print("Found stencil pragma");
+            found_stencil = TRUE;
+            <* Remove pragma *>
+            stencil_prag = p;
+            new_prag = REPLACE((("stencil", "scop")), p);
+            <* REPLACE(("stencil" "scop"), CODE.UnknownUntilEOL#(("pragma" " " "scop")));*>
+          }
+        }
+      }
+    enddo 
+  enddo
+
+  <*new_kernel = StmtList#(
+    old_kernel
+    UnknownUntilEOL#("#pragma" " " "endscop")
+                                 ); *>
+
+  new_input = REPLACE(((old_fbody, new_fbody)), input);
+  new_input = REPLACE(((stencil_prag, new_prag)), new_input);
+
+  return new_input;
+</xform>

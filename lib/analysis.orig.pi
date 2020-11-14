@@ -1,0 +1,62 @@
+<define SymTable NULL />
+<define ARRAY_TYPES NULL/>
+
+
+<code BookKeeping pars=(content)> @content@ </code>
+
+<xform insert_typeInfo pars=(type,vars) tab=GLOBAL.SymTable/>
+
+
+<xform get_type pars=(exp) tab=GLOBAL.SymTable/>
+
+<xform global_modread pars=(op) local_vars="" output=(_mod,_read) />
+
+<* collect all dereferences of ptr that may be modified *>
+<xform collect_ptr_mod pars=(ptr,block) />
+
+<xform collect_variable_uses pars=(var, stmt, input) />
+<xform collect_variable_defs pars=(var, stmt, input) />
+<xform  symbolic_evaluation pars=(exp, loc, input)/>
+
+<xform is_array_access pars=(fun)/>
+<xform is_known_operator pars=(fun) />
+<xform find_function_definition pars=(name, whole_program)/>
+<xform find_type_definition pars=(name, whole_program)/>
+<xform find_access_control pars=(op, scope)/>
+
+<************** Optimization Analysis ****************>
+<code Pattern pars=(name : ID, attr : _, content:CODE.Nest) 
+              type="" parse = XFORM.RecognizePatterns
+              rebuild=((content[Nest.ctrl]:Loop|Loop_r|For)? XFORM.RecognizePatterns(content):
+                      (if((content[Nest.body]):Nest) XFORM.RecognizePatterns(content[Nest.body]);)) 
+              /> 
+
+<*QY: find all loop index and loop variant variables*>
+<xform CategorizeVariables pars=(input) 
+            index=NULL variant=NULL  arrrefs=NULL unknown=NULL  
+            output=(_index,_variant,_arrrefs,_unknown) />
+
+<* recognize and classify coding patterns *>
+<xform RecognizePatterns pars=(input)/>
+
+<***************************************************************>
+<code Graph pars=(nodes, edges)/>
+<***************************************************************>
+<*create a new unknown node, returns the name and declaration of the new node*>
+<xform new_unknown_node pars=(nodes,exp) output=(_name_, _decl_) />
+
+<* generate a new node representing exp in the given graphs*>
+<xform gen_ptr_node pars=(exp, graphs) output=(___new_graphs___) />
+
+<* delete the node v from the given graphs; return the new graphs *>
+<xform delete_ptr_node pars=(v, graphs) output=(__new_graphs___) />
+
+<* delete all edges from node v under tag next; return the rest of the edges *>
+<xform delete_edges_from pars=(v, next, edges)/>
+
+<* return a list of shape graphs modeling connectivity among given variables *>
+<xform analyze_connectivity pars=(graphs,ops) />
+
+<* return whether exp is linked by an unknown node in edges *>
+<xform is_linked_by_unknown pars=(exp, graphs) /> 
+
