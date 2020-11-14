@@ -6,5 +6,6 @@
 exe_config.json
 poet_stage.c
 *.exe
+/*.c
 **/stencil_props.json
 
