@@ -1,7 +1,7 @@
 # stencil_optimizer
 Automated Stencil Optimizer Tool
 
-Supplementary tool for the dissertation **Supporting Performance in Scientific Applications with Energy and Resilience Constraints from Modern Architectures**
+Supplementary tool for my dissertation **Supporting Performance in Scientific Applications with Energy and Resilience Constraints from Modern Architectures**
 
 Required libraries/tools for use:
  * R > 3.6 
