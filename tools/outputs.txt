@@ -1,0 +1,2 @@
+[1] "prediction accuracy 0.879912663755459 ; closeness accuracy 0.0327510917030568"
+[1] "ncorrect 403 ; nchecks 458"
