@@ -1,7 +1,7 @@
 # stencil_optimizer
-Automated Stencil Optimizer Tool
+A tool that analyzes a stencil kernel to identify and apply a code optimization strategy to maximize runtime performance
 
-Supplementary tool for the dissertation **Supporting Performance in Scientific Applications with Energy and Resilience Constraints from Modern Architectures**
+Supplementary tool for my dissertation **Supporting Performance in Scientific Applications with Energy and Resilience Constraints from Modern Architectures**
 
 Required libraries/tools for use:
  * R > 3.6 
