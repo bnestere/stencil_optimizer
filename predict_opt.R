@@ -33,7 +33,7 @@ exe_conf <- fromJSON(file=exe_conf_json)
 # ----------------------------------------------------------------------------
 # -----  Shape the data that builds the regression model ---------------------
 # ----------------------------------------------------------------------------
-stencil_csv <- "stencilbench.csv"
+stencil_csv <- "stencilbench.semenuk.cfgd.csv"
 dat <- read.csv(stencil_csv) %>%
   mutate(div = case_when(
                          divsLup > 0 ~ as.numeric(divsLup),
@@ -73,13 +73,16 @@ dat <- read.csv(stencil_csv) %>%
   summarize(mspeedup=mean(Speedup), mgflops=mean(GFLOPS), stdev=sd(Speedup)) %>%
   ungroup() 
 
+dat <- dat %>%
+  mutate(nts = nThreads^2)
+
 # ----------------------------------------------------------------------------
 # -----  Build the Regression Model 
 # ----------------------------------------------------------------------------
 fitter <- dat %>%
   group_by(optId) %>%
   nest() %>%
-  mutate(fit_wf = map(data, ~lm(mspeedup ~ D * OA * TO * var_coefs * tmax * nThreads * InputSize, data=.)))
+  mutate(fit_wf = map(data, ~lm(mspeedup ~ D * OA * TO * var_coefs * tmax * (nThreads + nts) * InputSize, data=.)))
 
 ncorrect <- 0
 nwrong <- 0
@@ -102,6 +105,7 @@ model_input <-data.frame(D = sten_props$dim,
                          TO = sten_props$to,
                          var_coefs = as.logical(sten_props$dd),
                          nThreads = exe_conf$nThreads,
+                         nts = exe_conf$nThreads^2,
                          tmax = exe_conf$nTimesteps,
                          InputSize = modelInputSize)
 
@@ -225,9 +229,7 @@ if("Rectangular Tiling" %in% opt_strat) {
 
 stage_file <- "poet_stage.c"
 margs <- c(stage_file, tile_flag, parallel_flag, "--pet", "-o", "out.c")
-command <- paste("/home/brandon/opt_devel/pluto/target/bin/polycc", margs)
-
-
+#command <- paste("/home/brandon/opt_devel/pluto/target/bin/polycc", margs)
 system2('polycc', args=margs)
 
 print("\n\n-------------------------------------------------")
