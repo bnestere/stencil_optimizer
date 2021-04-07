@@ -43,8 +43,8 @@ dat <- read.csv(stencil_csv) %>%
                                optId=='TDAC' ~ F,
                                (ldMats)>0 ~ T,
                                TRUE~F)) %>%
-  filter(optId != 'R + Omp') %>%
-  filter(optId != "TDAC") %>%
+#  filter(optId != 'R + Omp') %>%
+#  filter(optId != "TDAC") %>%
   mutate(optId = case_when(optId == 'orig' & (multsLup-addsLup)>=2 ~ paste0("Multiplicative Inversion"),
                            startsWith(paste0(optId), 'R') ~ paste0('Rectangular Tiling'),
                            startsWith(paste0(optId), 'Pd') ~ paste0('Partial Diamond Tiling'),
@@ -65,7 +65,8 @@ dat <- read.csv(stencil_csv) %>%
   ungroup() %>%
 
   group_by(D, OA, TO, div, var_coefs, tmax, InputSize) %>%
-  mutate(Original=max(case_when(optId=='orig' ~ mean_GFLOPS, TRUE ~ 0)),
+  #mutate(Original=max(case_when(optId=='orig' ~ mean_GFLOPS, TRUE ~ 0)),
+  mutate(Original=max(case_when(optId=='OMP' & nThreads==1 ~ mean_GFLOPS, TRUE ~ 0)),
          Speedup=GFLOPS/Original) %>%
   ungroup() %>%
   filter(optId != 'orig') %>%
@@ -73,9 +74,13 @@ dat <- read.csv(stencil_csv) %>%
   summarize(mspeedup=mean(Speedup), mgflops=mean(GFLOPS), stdev=sd(Speedup)) %>%
   ungroup() 
 
+print(dat)
+
 dat <- dat %>%
   mutate(nts = nThreads^2)
 
+
+print("Pre Build the Regression Model")
 # ----------------------------------------------------------------------------
 # -----  Build the Regression Model 
 # ----------------------------------------------------------------------------
@@ -83,6 +88,8 @@ fitter <- dat %>%
   group_by(optId) %>%
   nest() %>%
   mutate(fit_wf = map(data, ~lm(mspeedup ~ D * OA * TO * var_coefs * tmax * (nThreads + nts) * InputSize, data=.)))
+
+print("Built the Regression Model")
 
 ncorrect <- 0
 nwrong <- 0
@@ -100,11 +107,14 @@ if(sten_props$dim == 3) {
   modelInputSize <- (exe_conf$xmax * exe_conf$ymax * exe_conf$zmax)
 }
 
+max_n_threads <- exe_conf$nThreads
+max_nts <- max_n_threads^2
+
 model_input <-data.frame(D = sten_props$dim,
                          OA = sten_props$oa,
                          TO = sten_props$to,
                          var_coefs = as.logical(sten_props$dd),
-                         nThreads = exe_conf$nThreads,
+                         nThreads = max_n_threads,
                          nts = exe_conf$nThreads^2,
                          tmax = exe_conf$nTimesteps,
                          InputSize = modelInputSize)
@@ -156,6 +166,9 @@ valid_opts <- filter_invalid_opts(valid_opts, sten_props)
 
 opt_strat = c()
 
+n_thread_counts <- c(1,2,4,8,16)
+best_n_threads <- max_n_threads
+highest_perf <- 0
 # ----------------------------------------------------------------------------
 # ----- Use the prediction model to specialize an optimization strategy ------
 # ----------------------------------------------------------------------------
@@ -170,17 +183,33 @@ while(length(valid_opts) > 0) {
   
     if(!(optId %in% valid_opts)) next
   
-    pval <- round(predict(orow[['fit_wf']][[1]], model_input), 2)
-    pred_opt <- orow[['optId']]
-  
-    if(pval > max_pred & !startsWith(optId, 'Cach')) {
-      max_pred <- pval
-      best_opt <- pred_opt 
-    }
-  
-    if(startsWith(optId, 'Cach'))  pval <- pval / 3
+    print("Showing orow")
+    print(orow)
 
-    print(paste0('Predicted speedup: ', pred_opt, ': ',pval, 'x'))
+    for(nt in n_thread_counts) {
+      if(nt > max_n_threads) break
+
+      model_input$nThreads <- nt
+      model_input$nts <- nt^2
+      print(paste("Going to test nthreads", nt))
+
+      pval <- round(predict(orow[['fit_wf']][[1]], model_input), 2)
+      pred_opt <- orow[['optId']]
+  
+      if(pval > max_pred & !startsWith(optId, 'Cach')) {
+        max_pred <- pval
+        best_opt <- pred_opt 
+
+        if(pval > highest_perf) {
+          best_n_threads <- nt
+          highest_perf <- pval
+        }
+      }
+  
+      if(startsWith(optId, 'Cach'))  pval <- pval / 3
+
+      print(paste0('Predicted speedup (nt:',nt,'): ', pred_opt, ': ',pval, 'x'))
+    }
   }
 
   print('')
@@ -210,26 +239,45 @@ while(length(valid_opts) > 0) {
 # ----------------------------------------------------------------------------
 # -----  Optimize the code ---------------------------------------------------
 # ----------------------------------------------------------------------------
+tile_id <- ""
 tile_flag <- "--tile"
 if("Rectangular Tiling" %in% opt_strat) {
   tile_flag <- paste(tile_flag, "--nodiamond-tile")
+  tile_id <- 'rect'
 } else if("Partial Diamond Tiling" %in% opt_strat) {
   tile_flag <- paste(tile_flag, "--diamond-tile")
+  tile_id <- 'pd'
 } else if("Full Diamond Tiling" %in% opt_strat) {
   tile_flag <- paste(tile_flag, "--full-diamond-tile")
+  tile_id <- 'fd'
 }
+dim <- sten_props$dim
+dim_id <- paste0(c(sten_props$dim, 'd'), collapse='')
+tile_file <- paste0(c('tile',dim_id,tile_id,'sizes'),collapse='.')
+tile_folder <- 'tile_sizes'
+tile_path <- paste0(c(tile_folder, tile_file), collapse='/')
+print(paste("using blocking file", tile_path))
+
+cpargs <- c(tile_path, "tile.sizes")
+system2('cp', args=cpargs)
+
 
 parallel_flag <- ""
-if("Rectangular Tiling" %in% opt_strat) {
+#if("Rectangular Tiling" %in% opt_strat) {
+if("OMP" %in% opt_strat) {
   parallel_flag <- "--parallel"
 }
 
 # Multiplicative Inversion is performed previously through POET 
 
 
+
 stage_file <- "poet_stage.c"
-margs <- c(stage_file, tile_flag, parallel_flag, "--pet", "-o", "out.c")
-#command <- paste("/home/brandon/opt_devel/pluto/target/bin/polycc", margs)
+margs <- c(stage_file, tile_flag, parallel_flag, "--pet", "-o out.c")
+
+command <- paste("/home/brandon/opt_devel/pluto/target/bin/polycc", paste0(margs, collapse=" "))
+print(command)
+
 system2('polycc', args=margs)
 
 print("\n\n-------------------------------------------------")
@@ -237,5 +285,6 @@ print("-------------------------------------------------")
 print("Successfully applied the following optimizations:")
 print(" ")
 print(opt_strat)
+print(paste("Recommended Num Threads:", best_n_threads))
 print("-------------------------------------------------")
 print("-------------------------------------------------")
