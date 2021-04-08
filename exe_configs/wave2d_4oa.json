@@ -1,0 +1,7 @@
+{
+  "nThreads": 16,
+  "nTimesteps": 128,
+  "xmax": 4096,
+  "ymax": 4096,
+  "zmax": 0
+}

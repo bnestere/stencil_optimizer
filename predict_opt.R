@@ -125,7 +125,7 @@ print(model_input)
 filter_invalid_opts <- function(opts_list, indicators) {
 
   opts <- opts_list
-  if(!sten_props$isLinear) {
+  if(!indicators$isLinear) {
     if(length(opts) == 0) return(NULL)
     if("Rectangular Tiling" %in% opts) {
       if(length(opts) == 3) {
@@ -136,7 +136,7 @@ filter_invalid_opts <- function(opts_list, indicators) {
     }
   }
 
-  if(!sten_props$hasConstDiv) {
+  if(!indicators$hasConstDiv) {
     if(length(opts) == 0) return(NULL)
     if("Multiplicative Inversion" %in% opts) {
       if(length(opts) == 1) {
@@ -147,7 +147,7 @@ filter_invalid_opts <- function(opts_list, indicators) {
     }
   }
   
-  if(!sten_props$isSerial) {
+  if(!indicators$isSerial) {
     if(length(opts) == 0) return(NULL)
     if("OMP" %in% opts) {
       if(length(opts) == 1) {
@@ -161,79 +161,161 @@ filter_invalid_opts <- function(opts_list, indicators) {
   opts
 }
 
-valid_opts <- list(fd="Full Diamond Tiling", omp="OMP", pd="Partial Diamond Tiling", r="Rectangular Tiling", mi="Multiplicative Inversion")
-valid_opts <- filter_invalid_opts(valid_opts, sten_props)
 
-opt_strat = c()
-
-n_thread_counts <- c(1,2,4,8,16)
-best_n_threads <- max_n_threads
-highest_perf <- 0
-# ----------------------------------------------------------------------------
-# ----- Use the prediction model to specialize an optimization strategy ------
-# ----------------------------------------------------------------------------
-while(length(valid_opts) > 0) {
-
-  max_pred <- 0
-  best_opt <- ''
-
-  for(i in seq_along(1:nrow(fitter))) {
-    orow <- fitter[i,]
-    optId <- orow[['optId']]
+predict_strategy <- function(model_input, inp_sten_props, max_n_threads, fitter) {
+  valid_opts <- list(fd="Full Diamond Tiling", omp="OMP", pd="Partial Diamond Tiling", r="Rectangular Tiling", mi="Multiplicative Inversion")
+  valid_opts <- filter_invalid_opts(valid_opts, inp_sten_props)
   
-    if(!(optId %in% valid_opts)) next
+  opt_strat = c()
+  best_n_threads <- max_n_threads
   
-    print("Showing orow")
-    print(orow)
-
-    for(nt in n_thread_counts) {
-      if(nt > max_n_threads) break
-
-      model_input$nThreads <- nt
-      model_input$nts <- nt^2
-      print(paste("Going to test nthreads", nt))
-
-      pval <- round(predict(orow[['fit_wf']][[1]], model_input), 2)
-      pred_opt <- orow[['optId']]
+  n_thread_counts <- c(1,2,4,8,16)
+  highest_perf <- 0
+  # ----------------------------------------------------------------------------
+  # ----- Use the prediction model to specialize an optimization strategy ------
+  # ----------------------------------------------------------------------------
+  while(length(valid_opts) > 0) {
   
-      if(pval > max_pred & !startsWith(optId, 'Cach')) {
-        max_pred <- pval
-        best_opt <- pred_opt 
-
-        if(pval > highest_perf) {
-          best_n_threads <- nt
-          highest_perf <- pval
+    max_pred <- 0
+    best_opt <- ''
+  
+    for(i in seq_along(1:nrow(fitter))) {
+      orow <- fitter[i,]
+      optId <- orow[['optId']]
+    
+      if(!(optId %in% valid_opts)) next
+    
+      print("Showing orow")
+      print(orow)
+  
+      for(nt in n_thread_counts) {
+        if(nt > max_n_threads) break
+  
+        model_input$nThreads <- nt
+        model_input$nts <- nt^2
+        print(paste("Going to test nthreads", nt))
+  
+        pval <- round(predict(orow[['fit_wf']][[1]], model_input), 2)
+        pred_opt <- orow[['optId']]
+    
+        if(pval > max_pred & !startsWith(optId, 'Cach')) {
+          max_pred <- pval
+          best_opt <- pred_opt 
+  
+          if(pval > highest_perf) {
+            best_n_threads <- nt
+            highest_perf <- pval
+          }
         }
-      }
+    
+        if(startsWith(optId, 'Cach'))  pval <- pval / 3
   
-      if(startsWith(optId, 'Cach'))  pval <- pval / 3
-
-      print(paste0('Predicted speedup (nt:',nt,'): ', pred_opt, ': ',pval, 'x'))
+        print(paste0('Predicted speedup (nt:',nt,'): ', pred_opt, ': ',pval, 'x'))
+      }
     }
+  
+    print('')
+    #print(paste0('Recommended optimization: ', best_opt))
+  
+    opt_strat <- c(opt_strat, best_opt)
+  
+    if(best_opt == "Full Diamond Tiling" || 
+       best_opt == "Partial Diamond Tiling" || 
+       best_opt == "Rectangular Tiling") {
+  
+      inp_sten_props$isLinear <- FALSE
+    }
+  
+    if(best_opt == "OMP") {
+      inp_sten_props$isSerial <- FALSE
+    }
+  
+    if(best_opt == "Multiplicative Inversion") {
+      inp_sten_props$hasConstDiv <- FALSE
+    }
+  
+    valid_opts <- filter_invalid_opts(valid_opts, inp_sten_props)
   }
 
-  print('')
-  print(paste0('Recommended optimization: ', best_opt))
-
-  opt_strat <- c(opt_strat, best_opt)
-
-  if(best_opt == "Full Diamond Tiling" || 
-     best_opt == "Partial Diamond Tiling" || 
-     best_opt == "Rectangular Tiling") {
-
-    sten_props$isLinear <- FALSE
-  }
-
-  if(best_opt == "OMP") {
-    sten_props$isSerial <- FALSE
-  }
-
-  if(best_opt == "Multiplicative Inversion") {
-    sten_props$hasConstDiv <- FALSE
-  }
-
-  valid_opts <- filter_invalid_opts(valid_opts, sten_props)
+  list(opt_strat, best_n_threads)
 }
+
+#valid_opts <- filter_invalid_opts(valid_opts, sten_props)
+#
+#opt_strat = c()
+#
+#n_thread_counts <- c(1,2,4,8,16)
+#best_n_threads <- max_n_threads
+#highest_perf <- 0
+## ----------------------------------------------------------------------------
+## ----- Use the prediction model to specialize an optimization strategy ------
+## ----------------------------------------------------------------------------
+#while(length(valid_opts) > 0) {
+#
+#  max_pred <- 0
+#  best_opt <- ''
+#
+#  for(i in seq_along(1:nrow(fitter))) {
+#    orow <- fitter[i,]
+#    optId <- orow[['optId']]
+#  
+#    if(!(optId %in% valid_opts)) next
+#  
+#    print("Showing orow")
+#    print(orow)
+#
+#    for(nt in n_thread_counts) {
+#      if(nt > max_n_threads) break
+#
+#      model_input$nThreads <- nt
+#      model_input$nts <- nt^2
+#      print(paste("Going to test nthreads", nt))
+#
+#      pval <- round(predict(orow[['fit_wf']][[1]], model_input), 2)
+#      pred_opt <- orow[['optId']]
+#  
+#      if(pval > max_pred & !startsWith(optId, 'Cach')) {
+#        max_pred <- pval
+#        best_opt <- pred_opt 
+#
+#        if(pval > highest_perf) {
+#          best_n_threads <- nt
+#          highest_perf <- pval
+#        }
+#      }
+#  
+#      if(startsWith(optId, 'Cach'))  pval <- pval / 3
+#
+#      print(paste0('Predicted speedup (nt:',nt,'): ', pred_opt, ': ',pval, 'x'))
+#    }
+#  }
+#
+#  print('')
+#  print(paste0('Recommended optimization: ', best_opt))
+#
+#  opt_strat <- c(opt_strat, best_opt)
+#
+#  if(best_opt == "Full Diamond Tiling" || 
+#     best_opt == "Partial Diamond Tiling" || 
+#     best_opt == "Rectangular Tiling") {
+#
+#    sten_props$isLinear <- FALSE
+#  }
+#
+#  if(best_opt == "OMP") {
+#    sten_props$isSerial <- FALSE
+#  }
+#
+#  if(best_opt == "Multiplicative Inversion") {
+#    sten_props$hasConstDiv <- FALSE
+#  }
+#
+#  valid_opts <- filter_invalid_opts(valid_opts, sten_props)
+#}
+
+pred_info <- predict_strategy(model_input, sten_props, exe_conf$nThreads, fitter)
+opt_strat <- pred_info[1]
+best_n_threads <- pred_info[2]
 
 
 # ----------------------------------------------------------------------------
@@ -288,3 +370,64 @@ print(opt_strat)
 print(paste("Recommended Num Threads:", best_n_threads))
 print("-------------------------------------------------")
 print("-------------------------------------------------")
+
+print("Model Input")
+print(model_input)
+
+
+#model_input <-data.frame(D = sten_props$dim,
+#                         OA = sten_props$oa,
+#                         TO = sten_props$to,
+#                         var_coefs = as.logical(sten_props$dd),
+#                         nThreads = max_n_threads,
+#                         nts = exe_conf$nThreads^2,
+#                         tmax = exe_conf$nTimesteps,
+#                         InputSize = modelInputSize)
+
+dims <- c(1, 2, 3)
+oas <- c(2,4)
+tos <- c(0,1,2)
+var_coefs <- c(TRUE, FALSE)
+tmaxs <- c(16, 32, 64, 128, 256)
+input_sizes <- c(500000, 1000000, 2000000, 4000000)
+max_threads <- 16
+
+msten_props <- data.frame( isLinear = TRUE,
+                          isSerial = TRUE,
+                          hasConstDiv = FALSE)
+
+#for(dim in dims) {
+#  for(oa in oas) {
+#    for(to in tos) {
+#      for(vc in var_coefs) {
+#        for(tmax in tmaxs) {
+#          for(is in input_sizes) { 
+#
+#            input <- data.frame(D = dim,
+#                         OA = oa,
+#                         TO = to,
+#                         var_coefs = vc,
+#                         nThreads = max_threads,
+#                         nts = max_threads^2,
+#                         tmax = tmax,
+#                         InputSize = is)
+#            pred_info <- predict_strategy(input, msten_props, max_threads, fitter)
+#            opt_strat <- pred_info[1]
+#            best_n_threads <- pred_info[2]
+#
+#            if(best_n_threads != max_threads) {
+#              print("")
+#              print("Model Input")
+#              print(input)
+#              print("Predictions")
+#              print(opt_strat)
+#              print(paste("Recommended Num Threads:", best_n_threads))
+#            }
+#
+#
+#          }
+#        }
+#      }
+#    }
+#  }
+#}

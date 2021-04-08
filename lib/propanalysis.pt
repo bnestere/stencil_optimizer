@@ -3,7 +3,7 @@ include Loops.incl
 <code MDStencil pars=(dim, oa, to, dd, isLinear, isSerial, hasConstDiv) />
 
 <define SPATIAL_ITER_VARS "spatialIterVars" />
-<define TEMPORAL_ITER_VAR "temporalIterVar" />
+<define TEMPORAL_ITER_VARS "temporalIterVar" />
 
 <define DIM "dim" />
 <define OA "oa" />
@@ -77,10 +77,12 @@ include Loops.incl
 
     <* Extract temporal order *>
     temporal_reach = 0;
-    if(builder[TEMPORAL_ITER_VAR] == lhs) {
+    <*if(builder[TEMPORAL_ITER_VAR] == lhs) { *>
+    if(ListContains(builder[TEMPORAL_ITER_VARS], lhs)) {
       temporal_reach = rhs;
     }
-    if(builder[TEMPORAL_ITER_VAR] == rhs) {
+    <* if(builder[TEMPORAL_ITER_VAR] == rhs) { *>
+    if(ListContains(builder[TEMPORAL_ITER_VARS], rhs)) {
       temporal_reach = lhs;
     }
     if(temporal_reach > max_temporal_reach) max_temporal_reach = temporal_reach;
@@ -96,7 +98,10 @@ include Loops.incl
   enddo 
 
   builder[OA] = max_reach*2;
-  builder[TO] = max_temporal_reach;
+  if(max_temporal_reach > builder[TO]) {
+    builder[TO] = max_temporal_reach;
+  }
+  <*builder[TO] = max_temporal_reach;*>
   builder[DD] = dd;
 </xform>
 
@@ -129,12 +134,51 @@ include Loops.incl
 <xform AnalyzeStencilKernel pars=(stencil_builder, nest)>
 
 
-  stencil_builder[TEMPORAL_ITER_VAR] = nest[Nest.ctrl][Loop.i];
+  stencil_builder[TEMPORAL_ITER_VARS] = (nest[Nest.ctrl][Loop.i]);
   <* First loop is time *>
-  spatial_nest = nest[Nest.body];
+  temporal_body = nest[Nest.body];
 
-  GetDomainProps(stencil_builder, spatial_nest, 0);
-  GetIsIterationSpaceTraversalOfLinearOrder(stencil_builder, spatial_nest);
+  <* Do we have temporary temporal variables declared here?*>
+  if(temporal_body : Nest) {
+    GetDomainProps(stencil_builder, temporal_body, 0);
+    GetIsIterationSpaceTraversalOfLinearOrder(stencil_builder, temporal_body);
+  } else {
+    print("Is not a nest, is...");
+    DEBUG { temporal_body; };
+
+    max_temporal_reach = 0;
+    foreach defn = TypeInfo \in temporal_body do
+      <* type_name = defn[TypeInfo.name]; *>
+      type_init = defn[TypeInfo.init];
+
+      foreach bop = Bop \in type_init s.t. FALSE do
+        op = bop[Bop.op];
+        lhs = bop[Bop.opd1];
+        rhs = bop[Bop.opd2];
+
+        temporal_reach = 0;
+        if(ListContains(stencil_builder[TEMPORAL_ITER_VARS], lhs)) {
+          temporal_reach = rhs;
+        }
+        if(ListContains(stencil_builder[TEMPORAL_ITER_VARS], rhs)) {
+          temporal_reach = lhs;
+        }
+        if(temporal_reach > max_temporal_reach) max_temporal_reach = temporal_reach;
+
+      enddo
+
+      <* stencil_builder[TEMPORAL_ITER_VARS] = stencil_builder[TEMPORAL_ITER_VARS] :: type_name; *>
+    enddo
+
+    stencil_builder[TO] = max_temporal_reach;
+
+    <* Will only be one for the spatial nest itself*>
+    foreach spatial_nest = Nest \in temporal_body do
+      GetDomainProps(stencil_builder, spatial_nest, 0);
+      GetIsIterationSpaceTraversalOfLinearOrder(stencil_builder, spatial_nest);
+    enddo
+  }
+
 
 </xform>
 
