@@ -95,6 +95,33 @@ int main(int argc, char ** argv)
   benchSetFpSize(sizeof(double));
   benchFinalize();
 
+
+#ifdef VALIDATE
+  for (t = 0; t < TS; t++) {
+    
+    tnew = (t+(2-1)) % 2;
+    tm1 = (t+(2-1-1)) % 2; 
+
+    for (i0=2; i0<-2+N0; i0+=1)
+      {
+         u_test[tnew][i0] = c[2][i0]*u_test[tm1][-2+i0]+(c[1][i0]*u_test[tm1][-1+i0])+(c[0][i0]*u_test[tm1][i0])+(c[3][i0]*u_test[tm1][1+i0])+(c[4][i0]*u_test[tm1][2+i0]);
+      }
+
+    tlast = tnew;
+  }
+
+  for (i0=0; i0<N0; i0+=1)
+    {
+       
+       if (u[tlast][i0]!=u_test[tlast][i0]) 
+         {
+            fprintf(stderr,"Comparison Failed at index %d (%lf!=%lf)\n",i0,u[tlast][i0],u_test[tlast][i0]);
+            exit(EXIT_FAILURE);
+         }
+    }
+  free(u_test);
+#endif
+
   free(u);
   free(c);
 

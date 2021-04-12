@@ -5,7 +5,7 @@ PCGFLAGS=-L../..
 DBG=
 
 CC=gcc
-CFLAGS=-O3
+CFLAGS=-O3 
 LDFLAGS:=-lm -lstencil_config -lacc_timer -lbenchtool
 LDPARFLAGS:=-fopenmp
 REF_TEST_DIR=#!date +%Y_%m_%d:%H_%M
@@ -58,6 +58,7 @@ EQ_WAVEMOD:=wavemod
 EQ_GENERIC:=generic
 EQ_POISSON:=poisson
 
+   double(*u_0_0)[x_max] = (double*)malloc(2*x_max*sizeof (double));
 TEST_MODE=0
 RUN_ID=1
 
@@ -129,6 +130,11 @@ endif
 TILE_INPUT:= tile.$(D)d
 TILE_OPT_SUFFIX:=
 
+# 2nd temporal order eq should have a different tile strategy
+ifeq ($(EQ),$(EQ_WAVE))
+TILE_INPUT:=$(TILE_INPUT).2to
+endif
+
 # partial diamond
 ifeq ($(OPT),$(EXT_ALLOPT))
 TILE_OPT_SUFFIX:=.pd
@@ -173,11 +179,12 @@ untile:
 
 prepare:
 	mkdir -p $(STAGE_PATH)
+	#cp unopt/$(SRC).c $(STAGE_PATH)/$(SRC).$(OPT).c 
 	cp tile_sizes/$(TILE_INPUT) tile.sizes
 	cp unopt/$(SRC).c $(SRC).c 
 	cp exe_configs/$(SRC).json exe_config.json
 	Rscript predict_opt.R --in $(SRC).c
-	mv out.c $(STAGE_PATH)/$(SRC).c
+	mv out.c $(STAGE_PATH)/$(SRC).$(OPT).c
 
 clean:
 	rm -rf $(OUTPUT_DIR)
@@ -314,54 +321,60 @@ opt: export OMP_NUM_THREADS=$(N_THREADS)
 opt: prepare 
 	@echo "Working {dim:${dim}, oa:${oa}, to:${to}, ct:${coeftype}, div:${div}, mi:${mi}, nt:${N_THREADS}, rid:${RUN_ID}}"
 	$(eval EXE_OUT=x$(SRC)_$(CC))
-	$(CC) $(CFLAGS) $(STAGE_PATH)/$(SRC).c -o $(OUTPUT_DIR)/$(EXE_OUT) $(LDFLAGS); 
+	$(CC) $(CFLAGS) $(STAGE_PATH)/$(SRC).$(OPT).c -o $(OUTPUT_DIR)/$(EXE_OUT) $(LDFLAGS); 
 	@if [ "$(TEST_MODE)" = "1" ]; then\
 		echo "INFO: Running: ./$(OUTPUT_DIR)/$(EXE_OUT) $(DIM_PARAMS) > $(TEST_PATH)/$(EXE_OUT);"; \
 		mkdir -p $(TEST_PATH); \
 		./$(OUTPUT_DIR)/$(EXE_OUT) $(DIM_PARAMS) > $(TEST_PATH)/$(EXE_OUT); \
 	fi
 
+# $(CC) $(CFLAGS) $(STAGE_PATH)/$(SRC).c -o $(OUTPUT_DIR)/$(EXE_OUT) $(LDFLAGS); 
 #	$(CC) $(CFLAGS) $(STAGE_PATH)/$(SRC).$(OPT).c -o $(OUTPUT_DIR)/$(EXE_OUT) $(LDFLAGS)
 
 stencil_id="generic"
 
 # 8 threads for Poisson because it was pre-determinedvia the model from the 16 max
 poisson:
+	#@$(MAKE) dim=2 D=2 oa=4 to=0 div=1 mi=1 CC=gcc N_THREADS=8 D2_X=2863 D2_Y=2863 T_MAX=256 SRC=poisson2d_4oa EQ=poisson OPT=orig opt
 	@$(MAKE) dim=2 D=2 oa=4 to=0 div=1 mi=1 CC=gcc N_THREADS=8 D2_X=2863 D2_Y=2863 T_MAX=256 SRC=poisson2d_4oa EQ=poisson OPT=all opt
 
 run-poisson:
 	@$(MAKE) TEST_MODE=1 poisson
 
 wave:
+	#@$(MAKE) dim=2 D=2 oa=4 to=2 div=0 mi=0  CC=gcc N_THREADS=16 D1_X=1600000 D2_X=4096 D2_Y=4096 D3_X=256 D3_Y=256 D3_Z=256 T_MAX=128 SRC=wave2d_4oa EQ=wave OPT=orig opt
 	@$(MAKE) dim=2 D=2 oa=4 to=2 div=0 mi=0  CC=gcc N_THREADS=16 D1_X=1600000 D2_X=4096 D2_Y=4096 D3_X=256 D3_Y=256 D3_Z=256 T_MAX=128 SRC=wave2d_4oa EQ=wave OPT=fulldiamondpar opt
 
 run-wave:
 	@$(MAKE) TEST_MODE=1 wave
 
 heat:
+	#@$(MAKE) dim=3 D=3 oa=2 to=1 div=0 mi=0 CC=gcc N_THREADS=16 D1_X=6400000 D2_X=8000 D2_Y=8000 D3_X=216 D3_Y=216 D3_Z=216 T_MAX=64 SRC=heat3d_2oa EQ=heat OPT=orig opt
 	@$(MAKE) dim=3 D=3 oa=2 to=1 div=0 mi=0 CC=gcc N_THREADS=16 D1_X=6400000 D2_X=8000 D2_Y=8000 D3_X=216 D3_Y=216 D3_Z=216 T_MAX=64 SRC=heat3d_2oa EQ=heat OPT=all opt
 
 run-heat:
 	@$(MAKE) TEST_MODE=1 heat
 
 lapla:
+	#@$(MAKE) dim=1 D=1 oa=4 to=0 div=0 mi=0 CC=gcc D1_X=16384000 N_THREADS=1 T_MAX=32 SRC=lapla1d_4oa EQ=lapla OPT=orig opt
 	@$(MAKE) dim=1 D=1 oa=4 to=0 div=0 mi=0 CC=gcc D1_X=16384000 N_THREADS=8 T_MAX=32 SRC=lapla1d_4oa EQ=lapla OPT=nodiamondpar opt
 
 run-lapla:
 	@$(MAKE) TEST_MODE=1 lapla
 
 allencahn:
-	@$(MAKE) dim=3 D=3 oa=2 to=1 div=7 mi=1 CC=gcc N_THREADS=1 D1_X=64000000 D2_X=8000 D2_Y=8000 D3_X=161 D3_Y=161 D3_Z=161 T_MAX=32 SRC=allencahn3d_2oa EQ=allencahn EXT=cpp OPT=all opt
+	#@$(MAKE) dim=3 D=3 oa=2 to=1 div=7 mi=1 CC=gcc N_THREADS=1 D1_X=64000000 D2_X=8000 D2_Y=8000 D3_X=161 D3_Y=161 D3_Z=161 T_MAX=32 SRC=allencahn3d_2oa EQ=allencahn EXT=cpp OPT=orig opt
+	@$(MAKE) dim=3 D=3 oa=2 to=1 div=7 mi=1 CC=gcc N_THREADS=1 D1_X=64000000 D2_X=8000 D2_Y=8000 D3_X=161 D3_Y=161 D3_Z=161 T_MAX=32 SRC=allencahn3d_2oa EQ=allencahn EXT=cpp OPT=tile opt
 
 run-allencahn:
 	@$(MAKE) TEST_MODE=1 allencahn
 
 run-norms: 
-	@$(MAKE) run-allencahn
 	@$(MAKE) run-lapla
-	@$(MAKE) run-heat
-	@$(MAKE) run-poisson
-	@$(MAKE) run-wave
+	#@$(MAKE) run-allencahn
+	#@$(MAKE) run-heat
+	#@$(MAKE) run-poisson
+	#@$(MAKE) run-wave
 
 run-norm-opts:
 	@$(MAKE) EXT=c OPT=orig run-norms
